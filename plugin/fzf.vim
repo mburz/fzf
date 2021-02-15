@@ -435,11 +435,23 @@ try
     let source = dict.source
     let type = type(source)
     if type == 1
-      let prefix = '( '.source.' )|'
+      if has('win32unix')
+        let prefix = ''
+        let old_default_command = $FZF_DEFAULT_COMMAND
+        let $FZF_DEFAULT_COMMAND = source
+      else
+        let prefix = '( '.source.' )|'
+      endif
     elseif type == 3
       let temps.input = s:fzf_tempname()
       call writefile(source, temps.input)
-      let prefix = (s:is_win ? 'type ' : 'cat ').fzf#shellescape(temps.input).'|'
+      if has('win32unix')
+        let prefix = ''
+        let old_default_command = $FZF_DEFAULT_COMMAND
+        let $FZF_DEFAULT_COMMAND = 'cat ' . fzf#shellescape(temps.input)
+      else
+        let prefix = (s:is_win ? 'type ' : 'cat ').fzf#shellescape(temps.input).'|'
+      endif
     else
       throw 'Invalid source type'
     endif
@@ -470,12 +482,20 @@ try
   let command = prefix.(use_tmux ? s:fzf_tmux(dict) : fzf_exec).' '.optstr.' > '.temps.result
 
   if use_term
-    return s:execute_term(dict, command, temps)
+    let lines = s:execute_term(dict, command, temps)
+    if has('win32unix') && exists('old_default_command')
+      let $FZF_DEFAULT_COMMAND = old_default_command
+    endif
+    return lines
   endif
 
   let lines = use_tmux ? s:execute_tmux(dict, command, temps)
                  \ : s:execute(dict, command, use_height, temps)
   call s:callback(dict, lines)
+  if has('win32unix') && exists('old_default_command')
+    let $FZF_DEFAULT_COMMAND = old_default_command
+  endif
+
   return lines
 finally
   let [&shell, &shellslash, &shellcmdflag, &shellxquote] = [shell, shellslash, shellcmdflag, shellxquote]
@@ -648,6 +668,12 @@ function! s:execute(dict, command, use_height, temps) abort
       let a:temps.shellscript = shellscript
     endif
   endif
+  """echomsg ''
+  """echomsg '<<<start command'
+  """echomsg 'FZF_DEFAULT_COMMAND=' . $FZF_DEFAULT_COMMAND
+  """echomsg command
+  """echomsg '>>>end command'
+  """echomsg ''
   if a:use_height
     let stdin = has_key(a:dict, 'source') ? '' : '< /dev/tty'
     call system(printf('tput cup %d > /dev/tty; tput cnorm > /dev/tty; %s %s 2> /dev/tty', &lines, command, stdin))
